@@ -126,6 +126,6 @@ TBLPROPERTIES ('druid.datasource' = 'my_druid_source');
 
 ---
 
-**Использованные ресурсы**
+### Использованные ресурсы
 
 [Apache Hive: от модели распределённых вычислений MapReduce компании Google до Big Data – хранилища больших данных (Habr)](https://habr.com/ru/articles/585460/)
