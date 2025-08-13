@@ -112,11 +112,11 @@
 
 ## **8. Apache Airflow**
 
-* Таска в AirFlow упала с ошибкой, как сделать так, чтобы несмотря на ошибку, следующая таска запустилась?
-* Как в AirFlow в зависимости от условия, продолжить обработку по нужной ветке ДАГа?
-* Что такое Dataset в Airflow?
-* Что представляет из себя Sensor в Airflow?
-* Как передавать данные между задачами в Airflow? (ответа xcom не достаточно)
+* [Таска в AirFlow упала с ошибкой, как сделать так, чтобы несмотря на ошибку, следующая таска запустилась?](#таска-в-airflow-упала-с-ошибкой-как-сделать-так-чтобы-несмотря-на-ошибку-следующая-таска-запустилась)
+* [Как в AirFlow в зависимости от условия, продолжить обработку по нужной ветке ДАГа?](#как-в-airflow-в-зависимости-от-условия-продолжить-обработку-по-нужной-ветке-дага)
+* [Что такое Dataset в Airflow?](#что-такое-dataset-в-airflow)
+* [Что представляет из себя Sensor в Airflow?](#что-представляет-из-себя-sensor-в-airflow)
+* [Как передавать данные между задачами в Airflow? (ответа xcom не достаточно)](#как-передавать-данные-между-задачами-в-airflow-ответа-xcom-не-достаточно)
 
 ---
 
@@ -5469,6 +5469,522 @@ SELECT * FROM orders WHERE id = 100 FOR UPDATE;
 ---
 
 **8. Apache Airflow**
+
+---
+
+## Таска в AirFlow упала с ошибкой, как сделать так, чтобы несмотря на ошибку, следующая таска запустилась?
+
+В Apache Airflow по умолчанию, если **таска падает с ошибкой**, все downstream (зависимые) таски **не запускаются**, потому что статус падшей таски считается `failed`. Чтобы заставить следующую таску выполняться даже при ошибке предыдущей, нужно изменить **поведение зависимостей** между тасками. Рассмотрим подробно.
+
+---
+
+### 1. **Использование параметра `trigger_rule`**
+
+Каждая таска в Airflow имеет параметр `trigger_rule`, который определяет, при каких условиях она будет запускаться.
+
+* **По умолчанию:**
+
+  ```python
+  trigger_rule='all_success'
+  ```
+
+  Это значит, что таска запускается только если **все upstream таски успешно завершились**.
+
+* **Для запуска независимо от ошибок upstream:**
+
+  ```python
+  from airflow.models import DAG
+  from airflow.operators.dummy_operator import DummyOperator
+  from airflow.utils.dates import days_ago
+  from airflow.utils.trigger_rule import TriggerRule
+
+  with DAG('example_dag', start_date=days_ago(1), schedule_interval='@daily') as dag:
+      task1 = DummyOperator(task_id='task1')
+      
+      task2 = DummyOperator(
+          task_id='task2',
+          trigger_rule=TriggerRule.ALL_DONE  # запускается даже если task1 упала
+      )
+
+      task1 >> task2
+  ```
+
+* **Основные варианты `trigger_rule`:**
+
+  | Значение                | Описание                                                     |
+  | ----------------------- | ------------------------------------------------------------ |
+  | `all_success`           | Запуск только если все upstream успешны (по умолчанию)       |
+  | `all_failed`            | Запуск если все upstream упали                               |
+  | `all_done`              | Запуск если все upstream завершились (успешно или с ошибкой) |
+  | `one_success`           | Запуск если хотя бы один upstream успешен                    |
+  | `one_failed`            | Запуск если хотя бы один upstream упал                       |
+  | `dummy` / `none_failed` | Специальные варианты для более сложных зависимостей          |
+
+**Вывод:** Чтобы следующая таска запускалась даже при падении предыдущей, нужно использовать:
+
+```python
+trigger_rule=TriggerRule.ALL_DONE
+```
+
+---
+
+### 2. **Обработка ошибок внутри самой таски**
+
+Иногда удобнее **не давать таске падать**, а обрабатывать ошибки внутри таски:
+
+```python
+from airflow.operators.python_operator import PythonOperator
+
+def my_task():
+    try:
+        # Ваш код
+        1 / 0  # пример ошибки
+    except Exception as e:
+        print(f"Ошибка обработана: {e}")
+        # таска завершится успешно, даже если была ошибка
+
+task = PythonOperator(
+    task_id='my_task',
+    python_callable=my_task
+)
+```
+
+* В этом случае **таска считается успешной**, и downstream запускаются по умолчанию (`all_success`).
+* Минус: реальный статус ошибки не фиксируется, что может скрывать проблемы.
+
+---
+
+## Как в AirFlow в зависимости от условия, продолжить обработку по нужной ветке ДАГа?
+
+В Apache Airflow для **условного ветвления выполнения задач** используется оператор **BranchPythonOperator**. Он позволяет в зависимости от логики Python-функции выбрать, какая ветка DAG будет выполняться дальше. Рассмотрим подробно.
+
+---
+
+### 1. **Идея BranchPythonOperator**
+
+* Этот оператор **решает, какие таски запускать дальше**, на основе возвращаемого значения.
+* Возвращаемое значение должно быть **`task_id` одной из downstream тасок**, либо список `task_id`.
+* Все остальные таски, не выбранные для выполнения, будут помечены как **skipped**.
+
+---
+
+### 2. **Пример реализации**
+
+```python
+from airflow import DAG
+from airflow.operators.python_operator import PythonOperator, BranchPythonOperator
+from airflow.operators.dummy_operator import DummyOperator
+from airflow.utils.dates import days_ago
+
+def choose_branch():
+    value = 5  # здесь ваша логика, например, проверка значения
+    if value > 10:
+        return 'branch_high'
+    else:
+        return 'branch_low'
+
+with DAG('branch_example', start_date=days_ago(1), schedule_interval='@daily') as dag:
+
+    start = DummyOperator(task_id='start')
+
+    branch = BranchPythonOperator(
+        task_id='branching',
+        python_callable=choose_branch
+    )
+
+    branch_high = DummyOperator(task_id='branch_high')
+    branch_low = DummyOperator(task_id='branch_low')
+
+    join = DummyOperator(task_id='join', trigger_rule='none_failed_min_one_success')
+
+    # Определяем порядок выполнения
+    start >> branch
+    branch >> branch_high >> join
+    branch >> branch_low >> join
+```
+
+---
+
+### 3. **Разбор примера**
+
+1. **`choose_branch()`** — Python-функция, которая определяет, какая ветка будет выполняться.
+2. **BranchPythonOperator** — использует результат функции, чтобы выбрать downstream таски.
+3. **join task** — используется для объединения веток после разветвления.
+
+   * Чтобы join выполнялся, даже если одна ветка была пропущена (`skipped`), нужно использовать `trigger_rule`, например:
+
+     ```python
+     trigger_rule='none_failed_min_one_success'
+     ```
+4. Ветви, которые не выбраны, автоматически помечаются как **skipped** в интерфейсе Airflow.
+
+---
+
+### 4. **Особенности и рекомендации**
+
+* **Можно возвращать несколько task_id**, если нужно запускать несколько веток одновременно.
+* **Всегда используйте join task** для слияния ветвей, чтобы DAG корректно завершался.
+* **Не используйте обычный PythonOperator вместо BranchPythonOperator**, так как он не умеет пропускать ветки.
+* **Используйте trigger_rule** у объединяющей таски, чтобы учесть пропущенные ветки.
+
+---
+
+### 5. **Итог**
+
+Для условного ветвления DAG в Airflow:
+
+1. Используйте **BranchPythonOperator** для определения ветки по условию.
+2. Возвращайте `task_id` нужной ветки из функции.
+3. Пропущенные ветки будут помечены как skipped.
+4. Для объединения веток после ветвления используйте join-таску с подходящим `trigger_rule`.
+
+---
+
+## Что такое Dataset в Airflow?
+
+В Apache Airflow **Dataset** — это новая концепция, появившаяся начиная с версии **2.4**, которая позволяет связывать DAG и задачи через **данные**, а не только через явные зависимости между тасками. Она предназначена для управления **зависимостями на уровне данных** и автоматического триггирования DAG, когда определённый набор данных обновляется. Рассмотрим подробно.
+
+---
+
+### 1. **Идея Dataset**
+
+* Dataset представляет собой **логический объект, который описывает источник данных** (файл, таблицу, поток).
+* Цель: позволить **одному DAG уведомлять другие DAG о том, что данные обновились**, чтобы downstream DAG запускался автоматически.
+* Это помогает строить **data-driven DAG**, где обработка зависит от изменения данных, а не от выполнения предыдущих задач.
+
+---
+
+### 2. **Пример использования Dataset**
+
+```python
+from airflow import DAG
+from airflow.datasets import Dataset
+from airflow.operators.dummy_operator import DummyOperator
+from airflow.utils.dates import days_ago
+
+# Определяем Dataset
+my_dataset = Dataset("s3://bucket/my_file.csv")
+
+# DAG, который обновляет Dataset
+with DAG(
+    'producer_dag',
+    start_date=days_ago(1),
+    schedule_interval='@daily',
+) as dag1:
+    update_dataset = DummyOperator(
+        task_id='update_dataset',
+        outlets=[my_dataset]  # указываем, что эта таска обновляет Dataset
+    )
+```
+
+* `outlets=[my_dataset]` — показывает, что эта таска обновляет конкретный Dataset.
+
+---
+
+### 3. **Downstream DAG, который реагирует на обновление Dataset**
+
+```python
+from airflow import DAG
+from airflow.datasets import Dataset
+from airflow.operators.dummy_operator import DummyOperator
+from airflow.utils.dates import days_ago
+
+# Ссылаемся на тот же Dataset
+my_dataset = Dataset("s3://bucket/my_file.csv")
+
+with DAG(
+    'consumer_dag',
+    start_date=days_ago(1),
+    schedule=[my_dataset],  # запуск по обновлению Dataset
+) as dag2:
+    process_data = DummyOperator(
+        task_id='process_data'
+    )
+```
+
+* `schedule=[my_dataset]` — DAG запускается **каждый раз, когда Dataset обновляется**.
+
+---
+
+### 4. **Как это работает под капотом**
+
+1. **Producer DAG** обновляет Dataset (через `outlets`).
+2. Airflow фиксирует факт обновления Dataset.
+3. **Consumer DAG** с `schedule=[dataset]` автоматически ставится в очередь на запуск.
+4. Таким образом, можно строить **цепочки DAG**, которые реагируют на изменения данных, а не на завершение тасок напрямую.
+
+---
+
+### 5. **Преимущества использования Dataset**
+
+1. **Data-driven оркестрация:** DAG запускается при изменении данных, а не только по расписанию.
+2. **Упрощение зависимостей между DAG:** нет необходимости вручную связывать DAG через ExternalTaskSensor.
+3. **Повышение читаемости:** легко понять, какие DAG зависят от какого источника данных.
+4. **Гибкость:** можно связывать DAG с разными типами источников данных: S3, базы данных, API и т.д.
+
+---
+
+### 6. **Итог**
+
+* **Dataset в Airflow** — это объект, который описывает источник данных и служит триггером для DAG.
+* **Producer DAG** обновляет Dataset через `outlets`.
+* **Consumer DAG** запускается при обновлении Dataset через `schedule=[dataset]`.
+* Это позволяет строить **data-driven DAG** и автоматизировать обработку потоков данных.
+
+---
+
+## Что представляет из себя Sensor в Airflow?
+
+В Apache Airflow **Sensor** — это специальный вид оператора, задача которого — **ожидание наступления определённого события или состояния** перед выполнением downstream задач. Sensor не выполняет обработку данных напрямую, а “наблюдает” за внешними условиями. Рассмотрим подробно.
+
+---
+
+### 1. **Основная идея Sensor**
+
+* Sensor — это **оператор, который выполняется до тех пор, пока не выполнится заданное условие**.
+* Обычно используется для синхронизации DAG с внешними системами: файлами, таблицами, API, базами данных, очередями сообщений и другими DAG.
+* Sensor может быть **блокирующим** (постоянно проверяет условие) или **периодически проверяющим** (poke mode).
+
+---
+
+### 2. **Ключевые параметры Sensor**
+
+| Параметр        | Описание                                                                     |
+| --------------- | ---------------------------------------------------------------------------- |
+| `poke_interval` | Интервал (в секундах) между проверками условия                               |
+| `timeout`       | Время (в секундах), после которого sensor завершится с ошибкой               |
+| `mode`          | Режим выполнения: `poke` (блокирующий) или `reschedule` (освобождает worker) |
+| `soft_fail`     | Если `True`, sensor помечает таску как skipped при тайм-ауте вместо failure  |
+
+---
+
+### 3. **Пример Sensor**
+
+#### 3.1 Ожидание файла на S3
+
+```python
+from airflow import DAG
+from airflow.providers.amazon.aws.sensors.s3 import S3KeySensor
+from airflow.utils.dates import days_ago
+from airflow.operators.dummy_operator import DummyOperator
+
+with DAG('s3_sensor_example', start_date=days_ago(1), schedule_interval='@daily') as dag:
+
+    wait_for_file = S3KeySensor(
+        task_id='wait_for_file',
+        bucket_name='my-bucket',
+        bucket_key='data/{{ ds }}.csv',  # ждем файл за текущую дату
+        poke_interval=60,  # проверяем каждую минуту
+        timeout=3600,      # максимум ждём 1 час
+        mode='poke'
+    )
+
+    process_data = DummyOperator(task_id='process_data')
+
+    wait_for_file >> process_data
+```
+
+* `wait_for_file` не позволит `process_data` запуститься, пока файл не появится.
+
+#### 3.2 Ожидание таблицы в базе данных
+
+```python
+from airflow.providers.postgres.sensors.postgres import PostgresTableSensor
+
+wait_for_table = PostgresTableSensor(
+    task_id='wait_for_table',
+    postgres_conn_id='my_postgres',
+    table='public.my_table',
+    poke_interval=30,
+    timeout=1800
+)
+```
+
+---
+
+### 4. **Режимы работы Sensor**
+
+1. **Poke mode (блокирующий)**
+
+   * Sensor занимает **worker slot** всё время ожидания.
+   * Подходит для коротких ожиданий.
+
+2. **Reschedule mode (не блокирующий)**
+
+   * Sensor освобождает worker между проверками, повторно ставится в очередь через `poke_interval`.
+   * Экономит ресурсы кластера, особенно для долгого ожидания.
+
+---
+
+### 5. **Использование Sensor в DAG**
+
+* Sensor обычно размещается **перед downstream тасками**, которые зависят от наступления события.
+* Sensor позволяет строить DAG, синхронизированный с внешними источниками данных, а не только с upstream тасками.
+
+Пример DAG-цепочки:
+
+```
+Sensor (ожидание файла) --> Таска обработки данных --> Таска агрегации
+```
+
+* Sensor гарантирует, что downstream таски не начнутся, пока условие не выполнено.
+
+---
+
+### 6. **Итог**
+
+* **Sensor в Airflow** — это оператор для ожидания события или состояния.
+* Используется для синхронизации с внешними системами или зависимостями по данным.
+* Основные параметры: `poke_interval`, `timeout`, `mode`, `soft_fail`.
+* Может работать блокирующе (poke) или экономить ресурсы (reschedule).
+* Sensor обеспечивает безопасный запуск downstream тасок только после наступления нужного условия.
+
+---
+
+## Как передавать данные между задачами в Airflow? (ответа xcom не достаточно)
+
+В Apache Airflow данные между задачами можно передавать **несколькими способами**, в зависимости от объёма данных, требований к устойчивости и времени жизни данных. XCom — это стандартный механизм, но он не всегда подходит для больших объёмов или долговременного хранения. Рассмотрим подробно.
+
+---
+
+### 1. **XCom (Cross-Communication)**
+
+* **Назначение:** позволяет обмениваться небольшими данными между тасками в рамках DAG.
+* **Механизм:** каждая таска может **push** данные в XCom и **pull** их в downstream тасках.
+* **Пример:**
+
+```python
+from airflow.operators.python import PythonOperator
+
+def push_task(**kwargs):
+    kwargs['ti'].xcom_push(key='value', value=42)
+
+def pull_task(**kwargs):
+    val = kwargs['ti'].xcom_pull(key='value', task_ids='push_task')
+    print(f"Value from push_task: {val}")
+
+push = PythonOperator(task_id='push_task', python_callable=push_task, provide_context=True)
+pull = PythonOperator(task_id='pull_task', python_callable=pull_task, provide_context=True)
+
+push >> pull
+```
+
+* **Ограничения XCom:**
+
+  * Не предназначен для больших данных (ограничение на размер обычно до нескольких килобайт/мегабайт).
+  * Данные хранятся в метаданных Airflow (PostgreSQL/MySQL).
+
+---
+
+### 2. **Файловое хранилище (Local или Shared FS)**
+
+* **Идея:** таска записывает данные в файл, следующая таска его читает.
+* **Пример:**
+
+```python
+def write_file():
+    with open('/tmp/data.txt', 'w') as f:
+        f.write('Hello downstream task!')
+
+def read_file():
+    with open('/tmp/data.txt', 'r') as f:
+        print(f.read())
+```
+
+* **Плюсы:** подходит для больших файлов, простая реализация.
+* **Минусы:** требует **доступного общего файлового пространства**, особенно в распределённом кластере (например, NFS или PVC в Kubernetes).
+
+---
+
+### 3. **Общее облачное хранилище (S3, GCS, Azure Blob)**
+
+* **Идея:** таска записывает данные в облачное хранилище, downstream таска считывает оттуда.
+* **Пример с S3:**
+
+```python
+import boto3
+
+def upload_to_s3():
+    s3 = boto3.client('s3')
+    s3.put_object(Bucket='my-bucket', Key='data.txt', Body='Hello!')
+
+def download_from_s3():
+    s3 = boto3.client('s3')
+    obj = s3.get_object(Bucket='my-bucket', Key='data.txt')
+    data = obj['Body'].read().decode()
+    print(data)
+```
+
+* **Плюсы:**
+
+  * Подходит для больших данных.
+  * Надёжное хранение, долговременная доступность.
+* **Минусы:**
+
+  * Требует настройки подключения.
+  * Дополнительная задержка на сетевой доступ.
+
+---
+
+### 4. **Базы данных (PostgreSQL, MySQL, Redis и т.д.)**
+
+* **Идея:** таска записывает данные в базу, downstream таска читает их.
+* **Пример:**
+
+```python
+import psycopg2
+
+def write_db():
+    conn = psycopg2.connect("dbname=test user=airflow")
+    cur = conn.cursor()
+    cur.execute("INSERT INTO dag_data (key, value) VALUES (%s, %s)", ('x', '42'))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def read_db():
+    conn = psycopg2.connect("dbname=test user=airflow")
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM dag_data WHERE key=%s", ('x',))
+    print(cur.fetchone()[0])
+    cur.close()
+    conn.close()
+```
+
+* **Плюсы:**
+
+  * Подходит для больших объёмов и структурированных данных.
+  * Долговременное хранение.
+* **Минусы:**
+
+  * Нужна дополнительная инфраструктура.
+  * Могут быть накладные расходы на чтение/запись.
+
+---
+
+### 5. **Message Queue / Streaming (Kafka, RabbitMQ, Pub/Sub)**
+
+* **Идея:** таска публикует данные в очередь сообщений, downstream таска подписывается на топик.
+* **Плюсы:**
+
+  * Подходит для потоковых DAG и real-time обработки.
+  * Хорошо масштабируется для больших объёмов данных.
+* **Минусы:**
+
+  * Требует настройки и поддержания брокера сообщений.
+  * Более сложная логика обработки и ошибок.
+
+---
+
+### 6. **Сравнение подходов**
+
+| Метод                     | Объём данных      | Надёжность | Задержка    | Требуемая инфраструктура |
+| ------------------------- | ----------------- | ---------- | ----------- | ------------------------ |
+| XCom                      | Малый             | Средняя    | Минимальная | Airflow DB               |
+| Локальный файл            | Средний / большой | Средняя    | Низкая      | Общая файловая система   |
+| Облако (S3, GCS)          | Большой           | Высокая    | Средняя     | Хранилище облако         |
+| База данных               | Средний / большой | Высокая    | Средняя     | СУБД                     |
+| Message Queue / Streaming | Любой             | Высокая    | Низкая      | Kafka, RabbitMQ          |
 
 ---
 
