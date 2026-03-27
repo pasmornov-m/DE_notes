@@ -1,0 +1,23 @@
+services:
+    greenplum:
+        image: andruche/greenplum:7-8seg
+        container_name: greenplum
+        ports:
+            - "5435:5432"
+        restart: always
+        volumes:
+            - ./greenplum_data:/var/lib/postgresql/data
+            - ./external_files:/home/external_files
+        environment:
+            - POSTGRES_USER=gpadmin
+            - POSTGRES_PASSWORD=gpadmin
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+        networks:
+            - all_in_one
+
+networks:
+    all_in_one:

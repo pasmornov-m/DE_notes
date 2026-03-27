@@ -1,0 +1,117 @@
+x-airflow-common: &airflow-common
+    build:
+        context: .
+        dockerfile: Dockerfile
+    user: "${AIRFLOW_UID:-50000}:0"
+    environment: &airflow-common-env
+        - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+        - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow_metadata/airflow
+        - AIRFLOW__DATABASE__LOAD_DEFAULT_CONNECTIONS=False
+        - AIRFLOW__CORE__LOAD_EXAMPLES=False
+        - PYTHONPATH=/opt/airflow
+        - AIRFLOW_UID=${AIRFLOW_UID:-50000}
+        - AIRFLOW__SMTP__SMTP_HOST=mailpit
+        - AIRFLOW__SMTP__SMTP_PORT=1025
+        - AIRFLOW__SMTP__SMTP_STARTTLS=False
+        - AIRFLOW__SMTP__SMTP_SSL=False
+        - AIRFLOW__SMTP__SMTP_USER=
+        - AIRFLOW__SMTP__SMTP_PASSWORD=
+        - AIRFLOW__SMTP__SMTP_MAIL_FROM=airflow@localhost
+        - AIRFLOW__CORE__FERNET_KEY=BjOLSWGtg0bb_T14TyU5-tf6GRQrYxtyyVjNTYgC9So=
+        - AIRFLOW_UID=50000
+        - AIRFLOW_GID=0
+        - _AIRFLOW_WWW_USER_USERNAME=airflow
+        - _AIRFLOW_WWW_USER_PASSWORD=airflow
+        - AIRFLOW__WEBSERVER__SECRET_KEY=gj-seR1l1_ZSDLl7xxzELmJXilxzH6kIoMSFD3xaet4
+    env_file:
+        - .env
+    volumes:
+        - ./dags:/opt/airflow/dags
+        - ./plugins:/opt/airflow/plugins
+        - ./logs:/opt/airflow/logs
+        - ./airflow_practice:/opt/airflow/airflow_practice
+        - ./configuration:/opt/airflow/configuration
+        - ./data:/opt/airflow/data
+        - ./python_scripts:/opt/airflow/python_scripts
+        - ./spark_jars:/opt/airflow/spark_jars
+        - ./scripts:/opt/airflow/scripts
+        - ./sql:/opt/airflow/sql
+        - ./config.py:/opt/airflow/config.py
+    depends_on: &airflow-common-depends-on
+        airflow_metadata:
+            condition: service_healthy
+    networks:
+        - all_in_one
+
+services:
+    airflow_metadata:
+        image: postgres:17
+        container_name: airflow_metadata
+        environment:
+            POSTGRES_USER: airflow
+            POSTGRES_PASSWORD: airflow
+            POSTGRES_DB: airflow
+        volumes:
+            - ./pg_airflow_metadata:/var/lib/postgresql/data
+        healthcheck:
+            test: [ "CMD", "pg_isready", "-U", "airflow" ]
+            interval: 5s
+            retries: 5
+            start_period: 5s
+        restart: always
+        networks:
+            - all_in_one
+
+    airflow-init:
+        <<: *airflow-common
+        container_name: airflow-init
+        restart: no
+        depends_on:
+            airflow_metadata:
+                condition: service_healthy
+        command:
+            - bash
+            - -c
+            - |
+                airflow db init &&
+                airflow db upgrade &&
+                airflow users create \
+                    --username "${_AIRFLOW_WWW_USER_USERNAME:-airflow}" \
+                    --password "${_AIRFLOW_WWW_USER_PASSWORD:-airflow}" \
+                    --firstname Airflow \
+                    --lastname Admin \
+                    --role Admin \
+                    --email admin@example.com
+
+    airflow-webserver:
+        <<: *airflow-common
+        container_name: airflow-web
+        command: webserver
+        healthcheck:
+            test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+            interval: 10s
+            timeout: 10s
+            retries: 5
+        restart: always
+        depends_on:
+            airflow-init:
+                condition: service_completed_successfully
+        ports:
+            - 8080:8080
+
+    airflow-scheduler:
+        <<: *airflow-common
+        container_name: airflow-scheduler
+        command: scheduler
+        healthcheck:
+            test: [ "CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"' ]
+            interval: 10s
+            timeout: 10s
+            retries: 5
+        restart: always
+        depends_on:
+            airflow-init:
+                condition: service_completed_successfully
+
+networks:
+    all_in_one:
