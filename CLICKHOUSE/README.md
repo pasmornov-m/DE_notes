@@ -57,7 +57,7 @@ ClickHouse поддерживает достаточно большое коли
 Пример особенности, если выполнить следующий запрос в Clickhouse:
 
 ```sql
-SELECT 1 - 0.9::float 
+SELECT 1 - 0.9::float
 ```
 
 то в итоге мы получим ошибку округления, а именно **0.10000002384185791**
@@ -105,7 +105,7 @@ CREATE TABLE type_data
 --------------------------
     i Int8,             -- Int8-256 (со знаком)
     ui UInt8,           -- UInt8-256 (без знака)
-    fl Float32,         -- Float32-64 (для мат.расчетов, но не для финансов)  
+    fl Float32,         -- Float32-64 (для мат.расчетов, но не для финансов)
     dc Decimal32(5),    -- Decimal32-256 (точность после запятой)
     st String,          -- имеет произвольную длинну
     fst FixedString(5), -- имеет фиксированную длинну
@@ -133,7 +133,7 @@ CREATE TABLE type_data
             ),
     mp Map(String, Int16), -- хранит в данные в виде ключ -> значение
     en Enum('bad' = 2,     -- хранит данные определенного значения
-            'udovlet' = 3, 
+            'udovlet' = 3,
             'good' = 4 )
 )
 ENGINE = Log;
@@ -142,11 +142,11 @@ INSERT INTO type_data
     i, ui, fl, dc, st, fst,
     UID, ip4, ip6,
     dt, dtm, dtm64,
-    ar, tu, 
+    ar, tu,
     ns.col1, ns.col2, ns.col3,
     mp, en
 )
-VALUES 
+VALUES
 (
     -100,                                           -- i Int8
     200,                                            -- ui UInt8
@@ -168,7 +168,7 @@ VALUES
     {'key1': 10, 'key2': -20},                      -- mp Map(String, Int16)
     'udovlet'                                       -- en Enum
 );
-select 
+select
     ar[1],      -- обращение к элементам массива
     ar.size0,   -- получение размера массива
     tu,         -- чтение кортежа
@@ -273,23 +273,23 @@ CREATE TABLE nl_lc_tabl (
     a Nullable(UInt32),         -- разрешает вставку с пропуском значения.
     b LowCardinality(String),   -- ускоряет работу малокоординальных данных(часто повторяющихся)
     c UInt32
-) ENGINE = MergeTree 
+) ENGINE = MergeTree
 ORDER BY tuple(); -- определяет порядок строк по порядку вставки данных
 INSERT INTO nl_lc_tabl VALUES (NULL,'test' ,1);
 INSERT INTO nl_lc_tabl VALUES (1,'test2',NULL); -- null вставится как 0. Если тип данных строка вставляется как пустое значение
-INSERT INTO nl_lc_tabl VALUES (1, NULL, 3); 
-INSERT INTO nl_lc_tabl VALUES (1, 'test2', 4); 
+INSERT INTO nl_lc_tabl VALUES (1, NULL, 3);
+INSERT INTO nl_lc_tabl VALUES (1, 'test2', 4);
 SET input_format_null_as_default = 0; -- параметр, отвечающий за вставку пустых значений. Выполняется совместно с командой на вставку
 INSERT INTO nl_lc_tabl VALUES (1, 'sdasda', NULL)
-SELECT 
-    a, 
-    b, 
-    c 
+SELECT
+    a,
+    b,
+    c
 from nl_lc_tabl;
-SELECT 
-    toTypeName(a), 
-    toTypeName(b), 
-    toTypeName(c) 
+SELECT
+    toTypeName(a),
+    toTypeName(b),
+    toTypeName(c)
 from nl_lc_tabl;
 ```
 
@@ -365,11 +365,11 @@ INSERT INTO test_fields_with_ttl (
         toDate(now()) - number,
         rand(1) % 100000000
     FROM numbers(20);
-select 
+select
       col_default
-    , col_materialized 
-    , col_alias 
-    , col_codec 
+    , col_materialized
+    , col_alias
+    , col_codec
     , col_comment
     , col_ttl
 from test_fields_with_ttl;
@@ -534,7 +534,7 @@ SummingMergeTree - это таблица с группировкой одина�
 
 ```sql
 DROP TABLE IF EXISTS summing_mt;
- 
+
 CREATE TABLE summing_mt
 (
     id UInt32,
@@ -542,16 +542,16 @@ CREATE TABLE summing_mt
     dt datetime,
     example UInt32  -- столбец, не входящий в ключ сортировки и параметры движка
 )
-ENGINE = SummingMergeTree(val) -- сумма будет считаться по полю val, так как оно указано в качестве параметра движка 
+ENGINE = SummingMergeTree(val) -- сумма будет считаться по полю val, так как оно указано в качестве параметра движка
 ORDER BY (id)
 PARTITION BY toYYYYMM(dt); -- записи по этому ключу будут группироваться
- 
+
 INSERT INTO summing_mt
-SELECT 
-    number % 2, 
-    (number + 1) * 10, 
+SELECT
+    number % 2,
+    (number + 1) * 10,
     now() + number * 60 * 60 * 24,
-    (number + 1) * 100 
+    (number + 1) * 100
 from numbers(30);
 ```
 
@@ -567,11 +567,11 @@ SELECT * FROM summing_mt;
 
 ```sql
 INSERT INTO summing_mt
-SELECT 
-    number % 2, 
-    (number + 1) * 10, 
+SELECT
+    number % 2,
+    (number + 1) * 10,
     now() + number * 60 * 60 * 24,
-    (number + 1) * 100 
+    (number + 1) * 100
 from numbers(30);
 ```
 
@@ -607,7 +607,7 @@ count(Distinct col1) filter(where col1 > 1)
 
 ```sql
 ...
-countDistinctIf(col1, col1 > 1) 
+countDistinctIf(col1, col1 > 1)
 ...
 ```
 
@@ -630,11 +630,11 @@ countDistinctIf(col1, col1 > 1)
 DROP TABLE IF EXISTS simple;
 
 CREATE TABLE simple (
-    id UInt64, 
+    id UInt64,
     val_sum SimpleAggregateFunction(sum, UInt64), -- предусмотрен для хранения простых агрегатов(хранит конечное состояние)
     val_max SimpleAggregateFunction(max, UInt32)
-) 
-ENGINE=AggregatingMergeTree 
+)
+ENGINE=AggregatingMergeTree
 ORDER BY id;
 
 INSERT INTO simple SELECT  1, number, number from numbers(10);
@@ -657,10 +657,10 @@ SELECT * FROM simple FINAL;
 На больших таблицах, где данные поступают большими блоками и достаточно регулярно, намного эффективнее получить тот же результат следущим запросом:
 
 ```sql
-SELECT 
-    id, 
+SELECT
+    id,
     sum(val_sum),
-    max(val_max) 
+    max(val_max)
 FROM simple
 GROUP BY id;
 ```
@@ -690,15 +690,15 @@ CREATE TABLE aggr_func_tbl
     val_uniq AggregateFunction(uniq, UInt64),         -- Хранит в себе промежуточное состояние данных
     val_any AggregateFunction(anyIf, String, UInt8),
     val_quant AggregateFunction(quantiles(0.5, 0.9), UInt64)
-) ENGINE=AggregatingMergeTree 
+) ENGINE=AggregatingMergeTree
 ORDER BY id;
 
 INSERT INTO aggr_func_tbl
-SELECT 
-    1, 
+SELECT
+    1,
     uniqState(toUInt64(rnd)),                 -- кол-во уникальных значений
     anyIfState(toString(rnd),rnd%2=0),
-    quantilesState(0.5, 0.9)(toUInt64(rnd)) 
+    quantilesState(0.5, 0.9)(toUInt64(rnd))
 FROM
     (SELECT arrayJoin(arrayMap(i -> i * 10, range(10))) as rnd);
 ```
@@ -718,9 +718,9 @@ SELECT * FROM aggr_func_tbl  FORMAT Vertical
 А теперь посмотрим на данные, но их невозможно прочитать. Чтобы достать необходимые для нас данные необходимо воспользоваться комбинатором **-Merge**, вот так:
 
 ```sql
-SELECT uniqMerge(val_uniq), 
-        quantilesMerge(0.5, 0.9)(val_quant), 
-        anyIfMerge(val_any) 
+SELECT uniqMerge(val_uniq),
+        quantilesMerge(0.5, 0.9)(val_quant),
+        anyIfMerge(val_any)
 FROM aggr_func_tbl
 ```
 
@@ -850,7 +850,7 @@ CREATE TABLE el
 ENGINE = Log;
 
 INSERT INTO el
-select 
+select
 number,
 now()::date + number,
 from numbers(10);
@@ -873,7 +873,7 @@ CREATE TABLE ef
 ENGINE = File(CSV);
 
 INSERT INTO ef
-SELECT 
+SELECT
     number,
     now()::date + number
 FROM numbers(10);
@@ -916,7 +916,7 @@ ENGINE = Buffer(db,      -- имя БД
                 );
 
 INSERT INTO eb
-SELECT 
+SELECT
     number,
     now()::date + number
 FROM numbers(1);
@@ -955,7 +955,7 @@ CREATE TABLE em
 ENGINE = Memory;
 
 INSERT INTO em
-SELECT 
+SELECT
     number,
     now()::date + number
 FROM numbers(100);
@@ -995,7 +995,7 @@ INSERT INTO est SELECT number from numbers(300);
 Читать данные из  Set-таблицы не получится.
 
 ```sql
-SELECT * FROM es -- выдаст ошибку 
+SELECT * FROM es -- выдаст ошибку
 ```
 
 Применять можно только таким образом:
@@ -1023,7 +1023,7 @@ DROP TABLE IF EXISTS eg;
 
 CREATE TABLE eg
 (
-    id UInt32, 
+    id UInt32,
     val String,
     dt date,
     a Float32,
@@ -1037,7 +1037,7 @@ ENGINE = GenerateRandom;
 ```
 
 ```sql
-select * 
+select *
 from eg
 limit 10;
 ```
@@ -1059,7 +1059,7 @@ CREATE TABLE postgresql_table
 )
 ENGINE = PostgreSQL(
                     'postgres_server:5432', -- сервер, порт
-                    'postgres',             -- БД 
+                    'postgres',             -- БД
                     'table_name',           -- таблица
                     'postgres',             -- логин
                     'postgres',             -- пароль
@@ -1134,7 +1134,7 @@ SELECT * FROM kafka_input_stage;
 ```sql
 DROP TABLE IF EXISTS table_stage_from_kafka;
 
-CREATE TABLE table_stage_from_kafka 
+CREATE TABLE table_stage_from_kafka
 (
     json_kafka String
 )
@@ -1146,7 +1146,7 @@ Engine = Log
 ```sql
 DROP VIEW IF EXISTS kafka_input_stage_mv;
 
-CREATE MATERIALIZED VIEW kafka_input_stage_mv TO table_stage_from_kafka AS 
+CREATE MATERIALIZED VIEW kafka_input_stage_mv TO table_stage_from_kafka AS
     SELECT
         json_kafka
     FROM kafka_input_stage;
@@ -1155,7 +1155,7 @@ CREATE MATERIALIZED VIEW kafka_input_stage_mv TO table_stage_from_kafka AS
 Осталось только достать данные из JSON:
 
 ```sql
-SELECT  
+SELECT
     JSONExtractInt(JSONExtractString(json_kafka, 'before'), 'id') as before_id,  -- JSONExtract<тип данных>(<JSON строка>, <ключ>)
     JSONExtractInt(JSONExtractString(json_kafka, 'before'), 'order_id') as before_order_id,
     JSONExtractString(JSONExtractString(json_kafka, 'before'), 'status') as before_status,

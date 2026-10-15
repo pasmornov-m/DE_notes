@@ -269,13 +269,13 @@ CREATE TABLE server_logs (
     severity_level text -- 'ERROR', 'WARNING', 'INFO'
 )
 -- Распределение данных по узлам кластера (Greenplum)
-DISTRIBUTED BY (log_id) 
+DISTRIBUTED BY (log_id)
 
 -- Основная партиция: по времени
-PARTITION BY RANGE (log_timestamp) 
+PARTITION BY RANGE (log_timestamp)
 
 -- Подпартиция: по уровню важности лога
-SUBPARTITION BY LIST (severity_level) 
+SUBPARTITION BY LIST (severity_level)
 SUBPARTITION TEMPLATE (
     SUBPARTITION crit VALUES ('ERROR', 'CRITICAL'), -- Группируем ошибки вместе
     SUBPARTITION warn VALUES ('WARNING'),
@@ -285,8 +285,8 @@ SUBPARTITION TEMPLATE (
 
 -- Определение временных интервалов (Партиции будут созданы автоматически по шаблону)
 (
-    START (date '2023-01-01') INCLUSIVE 
-    END (date '2023-04-01') EXCLUSIVE 
+    START (date '2023-01-01') INCLUSIVE
+    END (date '2023-04-01') EXCLUSIVE
     EVERY (INTERVAL '1 week'), -- Разбиваем по 1 неделе, а не по месяцу
     DEFAULT PARTITION archive_logs -- Для дат вне диапазона
 );
@@ -923,7 +923,7 @@ CREATE [OR REPLACE] FUNCTION name ( [ [argmode] [argname] argtype [ { DEFAULT | 
 | NO SQL | CONTAINS SQL | READS SQL DATA | MODIFIES SQL
 | EXECUTE ON { ANY | MASTER | ALL SEGMENTS | INITPLAN }
 | COST execution_cost | SET configuration_parameter { TO value | = value | FROM CURRENT }
-| AS 'definition' | AS 'obj_file', 'link_symbol' } ... 
+| AS 'definition' | AS 'obj_file', 'link_symbol' } ...
 ```
 
 Пример функции

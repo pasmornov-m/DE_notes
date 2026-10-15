@@ -2452,7 +2452,7 @@ result = df.filter(df["age"] > 30).select("name", "salary").collect()
 
 ## Какие особенности у движка ReplicatingMergeTree?
 
-**ReplicatedMergeTree** — это расширение базового семейства **MergeTree** в ClickHouse, которое добавляет **репликацию и отказоустойчивость** для аналитических таблиц. 
+**ReplicatedMergeTree** — это расширение базового семейства **MergeTree** в ClickHouse, которое добавляет **репликацию и отказоустойчивость** для аналитических таблиц.
 
 ---
 
@@ -3410,8 +3410,8 @@ ClickHouse и Greenplum — это системы для работы с дан�
 SQL-запрос:
 
 ```sql
-SELECT c.name, SUM(o.amount) 
-FROM customers c 
+SELECT c.name, SUM(o.amount)
+FROM customers c
 JOIN orders o ON c.id = o.customer_id
 WHERE c.region = 'Europe'
 GROUP BY c.name;
@@ -4975,7 +4975,7 @@ For Each value in pile1
         If pile1.value = pile2.value
         Return pile1.value, pile2.value
 ```
- 
+
 #### Merge join
 
 Для этого алгоритма элементы уже должны быть отсортированы. Тут мы проходимся двумя указателями по элементам и сравниваем их. В конце проходим по оставшимся элементам.
@@ -7754,7 +7754,7 @@ SELECT * FROM orders WHERE id = 100 FOR UPDATE;
 
   with DAG('example_dag', start_date=days_ago(1), schedule_interval='@daily') as dag:
       task1 = DummyOperator(task_id='task1')
-      
+
       task2 = DummyOperator(
           task_id='task2',
           trigger_rule=TriggerRule.ALL_DONE  # запускается даже если task1 упала

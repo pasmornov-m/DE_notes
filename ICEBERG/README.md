@@ -170,7 +170,7 @@ df.writeTo("habr.paper.write_ordered").append()
 ```python
 spark.sql("""
 SELECT readable_metrics.id.lower_bound AS id_min,
-    readable_metrics.id.upper_bound AS id_max, file_path 
+    readable_metrics.id.upper_bound AS id_max, file_path
 FROM habr.paper.write_ordered.files
 """).show(truncate=False)
 ```
