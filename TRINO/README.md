@@ -26,11 +26,8 @@
 
 ![Архитектура Trino](../png/trino_1.png)
 
-*Архитектура Trino*
-
-
 ---
 
-### Использованные ресурсы
+## Использованные ресурсы
 
 [MPP-движок для Big Data: архитектура и принципы работы Trino](https://bigdataschool.ru/blog/news/what-is-trino/)
